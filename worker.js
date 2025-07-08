@@ -1,61 +1,101 @@
-// 配置项
-const CONFIG = {
-  // 允许的域名白名单（为了安全，建议限制允许访问的域名）
-  ALLOWED_DOMAINS: [
-    'api.github.com',
-    'httpbin.org',
-    'jsonplaceholder.typicode.com',
-    // 添加您需要代理的域名
-  ],
+/**
+ * 从环境变量解析域名列表
+ * @param {string} envValue - 环境变量值，用逗号分隔的域名列表
+ * @returns {string[]} 域名数组
+ */
+function parseDomainsFromEnv(envValue) {
+  if (!envValue) return [];
+  return envValue.split(',').map(domain => domain.trim()).filter(domain => domain.length > 0);
+}
 
-  // 允许的来源域名（CORS）
-  ALLOWED_ORIGINS: [
-    'http://localhost:3000',
-    'http://localhost:8000',
-    'https://yourdomain.com',
-    // 添加您的前端域名
-  ],
+/**
+ * 获取配置项，优先从环境变量获取
+ * @param {object} env - 环境变量对象
+ * @returns {object} 配置对象
+ */
+function getConfig(env = {}) {
+  // 默认配置
+  const defaultConfig = {
+    // 允许的域名白名单（为了安全，建议限制允许访问的域名）
+    ALLOWED_DOMAINS: [
+      // 添加您需要代理的域名
+    ],
 
-  // 请求超时时间（毫秒）
-  TIMEOUT: 30000,
+    // 允许的来源域名（CORS）
+    ALLOWED_ORIGINS: [
+      // 添加您的前端域名
+    ],
 
-  // 最大请求体大小（字节）
-  MAX_BODY_SIZE: 10 * 1024 * 1024, // 10MB
+    // 请求超时时间（默认30秒）
+    TIMEOUT: 30,
+
+    // 最大请求体大小（默认10MB）
+    MAX_BODY_SIZE: 10 * 1024 * 1024,
+  };
+
+  // 从环境变量获取额外的域名配置
+  const envAllowedDomains = parseDomainsFromEnv(env.ALLOWED_DOMAINS);
+  const envAllowedOrigins = parseDomainsFromEnv(env.ALLOWED_ORIGINS);
+
+  // 合并域名配置（环境变量的域名会添加到默认配置中）
+  const allowedDomains = [...defaultConfig.ALLOWED_DOMAINS, ...envAllowedDomains];
+  const allowedOrigins = [...defaultConfig.ALLOWED_ORIGINS, ...envAllowedOrigins];
+
+  // 从环境变量获取超时时间（秒），如果没有则使用默认值
+  const timeoutSeconds = env.TIMEOUT ? parseInt(env.TIMEOUT, 10) : defaultConfig.TIMEOUT;
+  const timeout = isNaN(timeoutSeconds) ? defaultConfig.TIMEOUT * 1000 : timeoutSeconds * 1000; // 转换为毫秒
+
+  // 从环境变量获取最大请求体大小（MB），如果没有则使用默认值
+  const maxBodySizeMB = env.MAX_BODY_SIZE ? parseInt(env.MAX_BODY_SIZE, 10) : (defaultConfig.MAX_BODY_SIZE / (1024 * 1024));
+  const maxBodySize = isNaN(maxBodySizeMB) ? defaultConfig.MAX_BODY_SIZE : maxBodySizeMB * 1024 * 1024; // 转换为字节
+
+  return {
+    ALLOWED_DOMAINS: allowedDomains,
+    ALLOWED_ORIGINS: allowedOrigins,
+    TIMEOUT: timeout,
+    MAX_BODY_SIZE: maxBodySize,
+  };
+}
+
+export default {
+  async fetch(request, env) {
+    return handleRequest(request, env);
+  }
 };
-
-addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
 
 /**
  * 处理请求的主函数
  * @param {Request} request
+ * @param {object} env - 环境变量
  */
-async function handleRequest(request) {
+async function handleRequest(request, env = {}) {
   try {
+    // 获取配置（优先从环境变量获取）
+    const CONFIG = getConfig(env);
+
     // 记录请求信息（用于调试）
     console.log(`[${new Date().toISOString()}] ${request.method} ${request.url}`);
 
     // 处理预检请求
     if (request.method === 'OPTIONS') {
-      return handlePreflight(request);
+      return handlePreflight(request, CONFIG);
     }
 
     // 解析和验证请求
-    const { targetUrl, isValid, error } = parseAndValidateRequest(request);
+    const { targetUrl, isValid, error } = parseAndValidateRequest(request, CONFIG);
 
     if (!isValid) {
       return createErrorResponse(error, 400);
     }
 
     // 检查CORS
-    const corsError = checkCORS(request);
+    const corsError = checkCORS(request, CONFIG);
     if (corsError) {
       return createErrorResponse(corsError, 403);
     }
 
     // 执行代理请求
-    const response = await proxyRequest(request, targetUrl);
+    const response = await proxyRequest(request, targetUrl, CONFIG);
 
     return response;
 
@@ -68,8 +108,9 @@ async function handleRequest(request) {
 /**
  * 解析和验证请求
  * @param {Request} request
+ * @param {object} config - 配置对象
  */
-function parseAndValidateRequest(request) {
+function parseAndValidateRequest(request, config) {
   const url = new URL(request.url);
   const targetUrl = url.searchParams.get('url');
 
@@ -101,8 +142,8 @@ function parseAndValidateRequest(request) {
   }
 
   // 检查域名白名单
-  if (CONFIG.ALLOWED_DOMAINS.length > 0 &&
-      !CONFIG.ALLOWED_DOMAINS.includes(parsedTargetUrl.hostname)) {
+  if (config.ALLOWED_DOMAINS.length > 0 &&
+      !config.ALLOWED_DOMAINS.includes(parsedTargetUrl.hostname)) {
     return {
       isValid: false,
       error: `Domain ${parsedTargetUrl.hostname} is not allowed`
@@ -126,8 +167,9 @@ function parseAndValidateRequest(request) {
 /**
  * 检查CORS权限
  * @param {Request} request
+ * @param {object} config - 配置对象
  */
-function checkCORS(request) {
+function checkCORS(request, config) {
   const origin = request.headers.get('Origin');
 
   // 如果没有Origin头，可能是同源请求或服务器端请求
@@ -136,9 +178,9 @@ function checkCORS(request) {
   }
 
   // 检查来源是否在允许列表中
-  if (CONFIG.ALLOWED_ORIGINS.length > 0 &&
-      !CONFIG.ALLOWED_ORIGINS.includes(origin) &&
-      !CONFIG.ALLOWED_ORIGINS.includes('*')) {
+  if (config.ALLOWED_ORIGINS.length > 0 &&
+      !config.ALLOWED_ORIGINS.includes(origin) &&
+      !config.ALLOWED_ORIGINS.includes('*')) {
     return `Origin ${origin} is not allowed`;
   }
 
@@ -148,14 +190,15 @@ function checkCORS(request) {
 /**
  * 处理预检请求
  * @param {Request} request
+ * @param {object} config - 配置对象
  */
-function handlePreflight(request) {
+function handlePreflight(request, config) {
   const origin = request.headers.get('Origin');
 
   // 检查来源
-  if (CONFIG.ALLOWED_ORIGINS.length > 0 &&
-      !CONFIG.ALLOWED_ORIGINS.includes(origin) &&
-      !CONFIG.ALLOWED_ORIGINS.includes('*')) {
+  if (config.ALLOWED_ORIGINS.length > 0 &&
+      !config.ALLOWED_ORIGINS.includes(origin) &&
+      !config.ALLOWED_ORIGINS.includes('*')) {
     return new Response(null, { status: 403 });
   }
 
@@ -174,11 +217,12 @@ function handlePreflight(request) {
  * 执行代理请求
  * @param {Request} originalRequest
  * @param {string} targetUrl
+ * @param {object} config - 配置对象
  */
-async function proxyRequest(originalRequest, targetUrl) {
+async function proxyRequest(originalRequest, targetUrl, config) {
   // 创建AbortController用于超时控制
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CONFIG.TIMEOUT);
+  const timeoutId = setTimeout(() => controller.abort(), config.TIMEOUT);
 
   try {
     // 过滤和清理请求头
@@ -186,7 +230,7 @@ async function proxyRequest(originalRequest, targetUrl) {
 
     // 检查请求体大小
     const contentLength = originalRequest.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > CONFIG.MAX_BODY_SIZE) {
+    if (contentLength && parseInt(contentLength) > config.MAX_BODY_SIZE) {
       return createErrorResponse('Request body too large', 413);
     }
 
@@ -207,7 +251,7 @@ async function proxyRequest(originalRequest, targetUrl) {
     clearTimeout(timeoutId);
 
     // 创建响应
-    return createProxyResponse(response, originalRequest);
+    return createProxyResponse(response, originalRequest, config);
 
   } catch (error) {
     clearTimeout(timeoutId);
@@ -255,8 +299,9 @@ function cleanRequestHeaders(headers) {
  * 创建代理响应
  * @param {Response} response
  * @param {Request} originalRequest
+ * @param {object} config - 配置对象
  */
-function createProxyResponse(response, originalRequest) {
+function createProxyResponse(response, originalRequest, config) {
   const origin = originalRequest.headers.get('Origin');
 
   // 过滤响应头
@@ -281,7 +326,7 @@ function createProxyResponse(response, originalRequest) {
 
   // 添加CORS头
   responseHeaders.set('Access-Control-Allow-Origin',
-    CONFIG.ALLOWED_ORIGINS.includes('*') ? '*' : (origin || '*'));
+    config.ALLOWED_ORIGINS.includes('*') ? '*' : (origin || '*'));
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Type');

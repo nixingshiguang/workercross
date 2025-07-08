@@ -26,6 +26,16 @@ WorkerCross是一个专为解决前端跨域资源共享(CORS)问题而设计的
 -  **成本低廉**：利用Cloudflare Workers免费额度
 -  **全球部署**：自动在全球200+数据中心部署
 
+## 🔒 安全特性
+
+1. **域名白名单**：只允许访问指定的域名
+2. **来源验证**：CORS来源检查
+3. **私有IP保护**：阻止访问内网地址
+4. **请求大小限制**：防止大文件攻击
+5. **超时控制**：防止长时间挂起
+6. **安全头部**：添加安全相关的HTTP头
+
+
 ###  与传统解决方案对比
 
 | 特性 | WorkerCross | 传统CORS代理 | 浏览器插件 |
@@ -46,6 +56,7 @@ cd workercross
 ```
 
 ### 2. 配置服务
+⚠️注意：此步骤可以跳过修改，部署后通过环境变量配置
 
 编辑 `worker.js` 文件中的配置项：
 
@@ -69,11 +80,37 @@ const CONFIG = {
 };
 ```
 
+📝 配置说明
++ 域名白名单配置
+  ```javascript
+  ALLOWED_DOMAINS: [
+    'api.github.com',
+    'httpbin.org',
+    'jsonplaceholder.typicode.com',
+    // 添加您需要代理的域名
+  ]
+  ```
+
++ CORS来源配置
+  ```javascript
+  ALLOWED_ORIGINS: [
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'https://yourdomain.com',
+    // 添加您的前端域名
+  ]
+  ```
+
++ 其他配置
+  - `TIMEOUT`: 请求超时时间（默认30秒）
+  - `MAX_BODY_SIZE`: 最大请求体大小（默认10MB）
+
+
 ### 3. 部署到Cloudflare Workers
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
 2. 进入 **Workers & Pages**
-3. 点击 **创建**  **从hello world开始** **开始使用** **自定义修改项目名称** **部署**
+3. 点击 **创建** ➡️ **从hello world开始** ➡️ **开始使用** ➡️ **自定义修改项目名称** ➡️ **部署**
 4. 点击 **编辑代码** ，将 `worker.js` 的内容复制到编辑器中
 5. 点击 **部署**
 
@@ -89,40 +126,56 @@ curl -X POST "https://your-worker.workers.dev?url=https://httpbin.org/post" \
      -d '{"test": "data"}'
 ```
 
-## 🔒 安全特性
+## 🔧 环境变量配置
 
-1. **域名白名单**：只允许访问指定的域名
-2. **来源验证**：CORS来源检查
-3. **私有IP保护**：阻止访问内网地址
-4. **请求大小限制**：防止大文件攻击
-5. **超时控制**：防止长时间挂起
-6. **安全头部**：添加安全相关的HTTP头
+### 支持的环境变量
 
-## 📝 详细配置
+| 环境变量 | 类型 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `ALLOWED_DOMAINS` | 字符串 | - | 允许的域名白名单，用逗号分隔，会添加到默认配置中 |
+| `ALLOWED_ORIGINS` | 字符串 | - | 允许的来源域名，用逗号分隔，会添加到默认配置中 |
+| `TIMEOUT` | 数字 | 30 | 请求超时时间（秒），会替换默认值 |
+| `MAX_BODY_SIZE` | 数字 | 10 | 最大请求体大小（MB），会替换默认值 |
 
-### 1. 域名白名单配置
-```javascript
-ALLOWED_DOMAINS: [
-  'api.github.com',
-  'httpbin.org',
-  'jsonplaceholder.typicode.com',
-  // 添加您需要代理的域名
-]
+### 在Cloudflare Workers中设置环境变量
+
+1. 在Cloudflare Dashboard中打开您的Worker
+2. 进入 **Settings** → **Variables**
+3. 在 **Environment Variables** 部分添加变量
+4. 点击 **Save and Deploy**
+
+### 环境变量示例
+
+```bash
+# 添加额外的允许域名
+ALLOWED_DOMAINS=api.example.com,cdn.example.com,api.myservice.com
+
+# 添加额外的允许来源
+ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com
+
+# 设置超时时间为60秒
+TIMEOUT=60
+
+# 设置最大请求体大小为20MB
+MAX_BODY_SIZE=20
 ```
 
-### 2. CORS来源配置
-```javascript
-ALLOWED_ORIGINS: [
-  'http://localhost:3000',
-  'http://localhost:8000',
-  'https://yourdomain.com',
-  // 添加您的前端域名
-]
-```
+### 配置优先级
 
-### 3. 其他配置
-- `TIMEOUT`: 请求超时时间（默认30秒）
-- `MAX_BODY_SIZE`: 最大请求体大小（默认10MB）
+1. **域名配置**：环境变量中的域名会**添加**到代码中的默认配置
+   - 最终配置 = 默认配置 + 环境变量配置
+
+2. **数值配置**：环境变量会**替换**默认值
+   - 如果设置了环境变量，使用环境变量的值
+   - 如果没有设置环境变量，使用默认值
+
+### 配置验证
+
+代码会自动验证环境变量：
+- 域名列表会过滤掉空字符串
+- 数值会进行类型检查，无效值会使用默认配置
+- TIMEOUT会自动转换为毫秒
+- MAX_BODY_SIZE会自动转换为字节
 
 ## 💻 使用方法
 
