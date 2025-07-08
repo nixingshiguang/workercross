@@ -105,7 +105,6 @@ const CONFIG = {
   - `TIMEOUT`: 请求超时时间（默认30秒）
   - `MAX_BODY_SIZE`: 最大请求体大小（默认10MB）
 
-
 ### 3. 部署到Cloudflare Workers
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
@@ -176,6 +175,46 @@ MAX_BODY_SIZE=20
 - 数值会进行类型检查，无效值会使用默认配置
 - TIMEOUT会自动转换为毫秒
 - MAX_BODY_SIZE会自动转换为字节
+
+
+## 🧪 测试模式
+
+### TEST_MODE 环境变量
+
+为了方便开发和测试，您可以设置 `TEST_MODE` 环境变量来允许所有域名和来源：
+
+```bash
+# 启用测试模式 - 允许所有域名和来源
+TEST_MODE=true
+```
+
+**⚠️ 重要说明：**
+- 当 `TEST_MODE=true` 时，`ALLOWED_DOMAINS` 和 `ALLOWED_ORIGINS` 都会被设置为 `['*']`
+- 这意味着允许访问任意域名和接受任意来源的请求
+- **仅建议在开发和测试环境中使用**
+- **生产环境中请务必关闭测试模式**
+
+### 使用场景
+
+1. **开发环境**：快速测试不同的API，无需频繁修改域名白名单
+2. **调试阶段**：排查CORS问题时临时开启
+3. **演示环境**：需要访问多个不确定域名的演示场景
+
+### 配置示例
+
+```bash
+# 开发环境配置
+TEST_MODE=true
+TIMEOUT=60
+MAX_BODY_SIZE=20
+
+# 生产环境配置（关闭测试模式）
+TEST_MODE=false  # 或者不设置此变量
+ALLOWED_DOMAINS=api.mycompany.com,cdn.mycompany.com
+ALLOWED_ORIGINS=https://myapp.com,https://www.myapp.com
+TIMEOUT=30
+MAX_BODY_SIZE=10
+```
 
 ## 💻 使用方法
 

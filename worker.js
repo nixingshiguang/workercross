@@ -14,6 +14,9 @@ function parseDomainsFromEnv(envValue) {
  * @returns {object} 配置对象
  */
 function getConfig(env = {}) {
+  // 检查是否启用测试模式
+  const isTestMode = env.TEST_MODE === 'true' || env.TEST_MODE === true;
+
   // 默认配置
   const defaultConfig = {
     // 允许的域名白名单（为了安全，建议限制允许访问的域名）
@@ -33,7 +36,18 @@ function getConfig(env = {}) {
     MAX_BODY_SIZE: 10 * 1024 * 1024,
   };
 
-  // 从环境变量获取额外的域名配置
+  // 如果启用测试模式，允许所有域名和来源
+  if (isTestMode) {
+    console.log('⚠️ TEST_MODE enabled: Allowing all domains and origins');
+    return {
+      ALLOWED_DOMAINS: ['*'], // 允许所有域名
+      ALLOWED_ORIGINS: ['*'], // 允许所有来源
+      TIMEOUT: (env.TIMEOUT ? parseInt(env.TIMEOUT, 10) : defaultConfig.TIMEOUT) * 1000,
+      MAX_BODY_SIZE: env.MAX_BODY_SIZE ? parseInt(env.MAX_BODY_SIZE, 10) * 1024 * 1024 : defaultConfig.MAX_BODY_SIZE,
+    };
+  }
+
+  // 正常模式：从环境变量获取额外的域名配置
   const envAllowedDomains = parseDomainsFromEnv(env.ALLOWED_DOMAINS);
   const envAllowedOrigins = parseDomainsFromEnv(env.ALLOWED_ORIGINS);
 
@@ -143,6 +157,7 @@ function parseAndValidateRequest(request, config) {
 
   // 检查域名白名单
   if (config.ALLOWED_DOMAINS.length > 0 &&
+      !config.ALLOWED_DOMAINS.includes('*') &&
       !config.ALLOWED_DOMAINS.includes(parsedTargetUrl.hostname)) {
     return {
       isValid: false,
